@@ -1,0 +1,328 @@
+---
+title: "HW3-Markdown"
+author: "Tra Reynolds, Sumin Kang, Ryan Martin"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+
+```
+
+# 1 Refactored HW2 into Functions
+## 1.1 label_by_median()
+```{r 1.1}
+#' @param x A numeric vector (can contain NA values).
+#'
+#' @return A data.frame with:
+#'   - value: the original values
+#'   - label: "below" or "at or above" (NA if value is NA)
+#'
+#' @examples
+#' label_by_median(c(1, 5, 2, NA))
+label_by_median <- function(x) {
+  # Input checks
+  if (!is.numeric(x)) {
+    stop("`x` must be a numeric vector.")
+  }
+
+  # Compute median ignoring NAs
+  med <- stats::median(x, na.rm = TRUE)
+
+  # Create labels; NAs stay NA
+  label <- ifelse(is.na(x),
+                  NA_character_,
+                  ifelse(x >= med, "at or above", "below"))
+
+  # Return table
+  data.frame(
+    value = x,
+    label = label,
+    stringsAsFactors = FALSE
+  )
+}
+```
+
+```{r 1.1Test, error=TRUE}
+
+# Example runs of 1.1
+#' The following code sections will run without errors and demonstrates
+#' that 1.1 works for numeric vectors.
+x_demo <- c(1, 5, 2, 8, NA, 4)
+x_demo
+
+xdemo_label <- label_by_median(x_demo)
+xdemo_label
+
+
+#' The following code sections will not fully run and demonstrates
+#' that 1.1 does not work for non-numeric vectors.
+
+ydemo <- c("a", "b", "c", "d", NA, 4)
+ydemo
+
+ydemo_label <- label_by_median(ydemo)
+
+
+```
+
+
+## 1.2 even_until()
+```{r 1.2}
+#' Collect even numbers up to n, stopping at first multiple of k
+#'
+#' @param n Positive integer. Upper limit of the loop.
+#' @param k Positive integer. Stop as soon as the current i is a multiple of k.
+#'
+#' @return An integer vector of even numbers encountered before
+#'   hitting the first multiple of k (the multiple itself is not included).
+#'
+#' @examples
+#' even_until(20, 6)
+even_until <- function(n, k) {
+  # Input checks
+  if (!is.numeric(n) || length(n) != 1 || !is.finite(n) || n <= 0 || n %% 1 != 0) {
+    stop("`n` must be a single positive integer.")
+  }
+  if (!is.numeric(k) || length(k) != 1 || !is.finite(k) || k <= 0 || k %% 1 != 0) {
+    stop("`k` must be a single positive integer.")
+  }
+
+  n <- as.integer(n)
+  k <- as.integer(k)
+
+  evens <- integer(0L)
+
+  for (i in seq_len(n)) {
+    # Skip odds
+    if (i %% 2L == 1L) {
+      next
+    }
+
+    # Stop at first multiple of k (do NOT include it)
+    if (i %% k == 0L) {
+      break
+    }
+
+    evens <- c(evens, i)
+  }
+
+  evens
+}
+```
+
+```{r 1.2Test}
+# Example runs of 1.2
+
+even_until(20, 5)   # stops at 10
+even_until(40, 17)  # stops at 34
+
+# Edge-ish cases:
+even_until(30, 17)  # no multiple of k within 1:n
+even_until(10, 2)   # stops immediately at first multiple of 2
+```
+
+## 1.3 sum_until()
+```{r 1.3}
+#' Draw random numbers and sum until threshold is exceeded
+#'
+#' @param thresh Positive numeric scalar. Stop when running total exceeds this.
+#' @param rng A function to generate random numbers. Must accept
+#'   at least a first argument n (number of draws). Default is runif.
+#' @param ... Additional arguments passed to `rng`.
+#'
+#' @return A list with:
+#'   - total: final sum (first value > thresh)
+#'   - draws: numeric vector of all draws used
+#'
+#' @examples
+#' set.seed(1)
+#' sum_until()                    # default: runif(., 0, 1), thresh = 1
+#' set.seed(1)
+#' sum_until(thresh = 5, rng = rexp, rate = 2)
+sum_until <- function(thresh = 1, rng = stats::runif, ...) {
+  # Input checks
+  if (!is.numeric(thresh) || length(thresh) != 1 || !is.finite(thresh) || thresh <= 0) {
+    stop("`thresh` must be a single positive, finite numeric value.")
+  }
+  if (!is.function(rng)) {
+    stop("`rng` must be a function that accepts at least a first argument `n`.")
+  }
+
+  total <- 0
+  draws <- numeric(0)
+
+  while (total <= thresh) {
+    x <- rng(1, ...)  # draw one number
+
+    if (!is.numeric(x) || length(x) != 1 || is.na(x) || !is.finite(x)) {
+      stop("`rng` must return a single finite numeric value for n = 1.")
+    }
+
+    draws <- c(draws, x)
+    total <- total + x
+  }
+
+  list(
+    total = total,
+    draws = draws
+  )
+}
+```
+
+
+```{r 1.3Test}
+# Example runs of 1.3
+
+set.seed(123)
+
+# Default (runif on (0,1), thresh = 1)
+res_sum_default <- sum_until()
+res_sum_default
+
+# Custom RNG: Exponential( rate = 2 ), threshold 5
+set.seed(123)
+res_sum_exp <- sum_until(thresh = 5, rng = rexp, rate = 2)
+res_sum_exp
+```
+
+## 1.4 estimate_pi()
+```{r 1.4}
+#' Estimate pi via Monte Carlo darts in the unit square
+#'
+#' @param n Positive integer. Number of darts to throw.
+#'
+#' @return A list with:
+#'   - inside: number of darts landing inside the unit quarter circle
+#'   - n: total number of darts
+#'   - pi_hat: Monte Carlo estimate of pi (4 * inside / n)
+#'
+#' @examples
+#' set.seed(1)
+#' estimate_pi(10^4)
+estimate_pi <- function(n) {
+  # Input checks
+  if (!is.numeric(n) || length(n) != 1 || !is.finite(n) || n <= 0 || n %% 1 != 0) {
+    stop("`n` must be a single positive integer.")
+  }
+
+  n <- as.integer(n)
+  inside <- 0L
+
+  for (i in seq_len(n)) {
+    x <- stats::runif(1)
+    y <- stats::runif(1)
+    if (x^2 + y^2 <= 1) {
+      inside <- inside + 1L
+    }
+  }
+
+  pi_hat <- 4 * inside / n
+
+  list(
+    inside = inside,
+    n      = n,
+    pi_hat = pi_hat
+  )
+}
+```
+
+```{r 1.4Test}
+# Example runs of 1.4
+
+set.seed(123)
+
+# More darts increase accuracy
+res_pi_1e4 <- estimate_pi(10000)
+res_pi_1e4
+
+res_pi_1e5 <- estimate_pi(100000)
+res_pi_1e5
+```
+
+## 1.5 rw_sim()
+```{r 1.5}
+#' Simulate a simple symmetric random walk with early stopping
+#'
+#' @param n_steps Positive integer. Maximum number of steps to simulate.
+#' @param boundary Positive numeric. Stop when |S_t| > boundary.
+#'
+#' @return A list with:
+#'   - S: numeric vector of positions S_0, S_1, ..., S_T (T <= n_steps)
+#'   - stop_time: the time t at which |S_t| > boundary, or NA if never exceeded
+#'
+#' @examples
+#' set.seed(1)
+#' rw_sim(n_steps = 100, boundary = 10)
+rw_sim <- function(n_steps = 1000L, boundary = 10) {
+  # Input checks
+  if (!is.numeric(n_steps) || length(n_steps) != 1 || !is.finite(n_steps) ||
+      n_steps <= 0 || n_steps %% 1 != 0) {
+    stop("`n_steps` must be a single positive integer.")
+  }
+  if (!is.numeric(boundary) || length(boundary) != 1 || !is.finite(boundary) ||
+      boundary <= 0) {
+    stop("`boundary` must be a single positive, finite numeric value.")
+  }
+
+  n_steps <- as.integer(n_steps)
+
+  # S_0 = 0, allocate max length n_steps + 1
+  S <- numeric(n_steps + 1L)
+  S[1] <- 0
+  stop_time <- NA_integer_
+
+  for (t in 2:(n_steps + 1L)) {
+    step <- sample(c(-1L, 1L), size = 1L)
+    S[t] <- S[t - 1L] + step
+
+    if (abs(S[t]) > boundary) {
+      stop_time <- t - 1L  # time index in terms of steps (S_t)
+      S <- S[1:t]          # truncate to actual path length
+      break
+    }
+  }
+
+  list(
+    S = S,
+    stop_time = stop_time
+  )
+}
+```
+
+```{r 1.5Test}
+# Example runs of 1.5
+
+set.seed(123)
+
+rw_res <- rw_sim(n_steps = 1000, boundary = 10)
+rw_res$stop_time      # when (if) it crossed the boundary
+head(rw_res$S)        # first few positions
+length(rw_res$S)      # length of the path
+```
+# 2 Alternative Functions
+## 2.1 Thresholded Labeling with Custom Statistic
+```{r 2.1}
+
+```
+
+## 2.2 Generalized Accumulator with Stop Rule
+```{r 2.2}
+
+```
+
+## 2.3 Random Walk with Reflecting Boundaries
+```{r 2.3}
+
+```
+
+# 3 Rashomon-Lite Package
+## 3.1 Core Functions
+```{r 3.1}
+
+```
+
+## 3.2 Minimal Package
+``` {r 3.2}
+
+```
