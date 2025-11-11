@@ -5,9 +5,10 @@ date: "`r Sys.Date()`"
 output: html_document
 ---
 
-```{r setup, include=FALSE}
+<GPT links> \
+Sumin Kang:https://chatgpt.com/share/69136d89-a134-8010-80c4-8255e2c9899a  \
 
-```
+
 
 # 1 Refactored HW2 into Functions
 ## 1.1 label_by_median()
@@ -300,21 +301,287 @@ rw_res$stop_time      # when (if) it crossed the boundary
 head(rw_res$S)        # first few positions
 length(rw_res$S)      # length of the path
 ```
+
+
 # 2 Alternative Functions
 ## 2.1 Thresholded Labeling with Custom Statistic
 ```{r 2.1}
+label_by_stat <- function(x, stat = function(v) stats::median(v, na.rm = TRUE)) {
+  # basic checks
+  if (!is.numeric(x)) stop("`x` must be a numeric vector.")
+  if (!is.function(stat)) stop("`stat` must be a function.")
 
+  # compute threshold
+  thr <- stat(x)
+  if (!is.numeric(thr) || length(thr) != 1L || !is.finite(thr)) {
+    stop("`stat(x)` must return a single finite numeric value.")
+  }
+
+  # label values; keep NA as NA
+  lab <- ifelse(is.na(x), NA_character_,
+                ifelse(x >= thr, "at or above", "below"))
+
+  data.frame(
+    value = x,
+    label = lab,
+    threshold = rep(thr, length(x)),
+    row.names = NULL,
+    stringsAsFactors = FALSE
+  )
+}
+
+# ---Results------------------------------------------------------------
+
+set.seed(42)
+z <- c(rnorm(12), NA)
+
+# default (median)
+head(label_by_stat(z))
+
+# mean threshold
+head(label_by_stat(z, stat = function(v) mean(v, na.rm = TRUE)))
+
+# 75th percentile threshold
+head(label_by_stat(z, stat = function(v) stats::quantile(v, 0.75, na.rm = TRUE)))
 ```
+\
+* **Median (≈ 0.5186)**: values ≥ 0.5186 are labeled **"at or above"**. In the first `head()`, row 1 and 4 meet this; others are "below". \
+* **Mean (≈ 0.7554)**: stricter cutoff than the median; in `head()`, non reach it, so all shown rows are "below". \
+* **75th percentile (≈ 1.4061)**: the highest cutoff; in `head()`, none reach it, so all shown rows are "below". \
+* **NA handling**: any `NA` in `z` stays `NA` in the `label` column (not shown in `head()`, but preserved by the function.) \
+
+By parameterizing the threshold via `stat`, the same labeling logic flexibly adapts to different summaries of the data as the chosen statistic increases from the median -> mean -> 75th percentile, the cutoff becomes more stringent and fewer observations are labeled "at or above", while `NA` values are carried through unchanged. \
 
 ## 2.2 Generalized Accumulator with Stop Rule
 ```{r 2.2}
+accumulate_until <- function(step_fun, stop_rule, max_iters = 1e6) {
+  if (!is.function(step_fun)) stop("`step_fun` must be a zero-arg function.")
+  if (!is.function(stop_rule)) stop("`stop_rule` must be a one-arg function.")
+  if (!is.numeric(max_iters) || length(max_iters) != 1 || max_iters <= 0) {
+    stop("`max_iters` must be a positive scalar.")
+  }
 
+  total <- 0
+  trace <- numeric(0)
+  iters <- 0L
+
+  repeat {
+    inc <- step_fun()
+    if (!is.numeric(inc) || length(inc) != 1L || !is.finite(inc)) {
+      stop("`step_fun()` must return a single finite numeric value.")
+    }
+
+    total <- total + inc
+    iters <- iters + 1L
+    trace <- c(trace, total)
+
+    if (isTRUE(stop_rule(total))) break
+    if (iters >= max_iters) stop("Reached `max_iters` without satisfying `stop_rule`.")
+  }
+
+  list(total = total, iters = iters, trace = trace)
+}
+
+# --- sum Uniform(0,1) until total > -----------------------------------
+set.seed(123)
+acc_demo <- accumulate_until(
+  step_fun  = function() stats::runif(1),  # U(0,1)
+  stop_rule = function(total) total > 6    # stop when total exceeds 6
+)
+acc_demo$total
+acc_demo$iters
+head(acc_demo$trace)
+
+# optional: quick plot of partial sums
+plot(acc_demo$trace, type = "l", xlab = "Iteration", ylab = "Partial sum",
+     main = "accumulate_until: partial sums (stop when > 6)")
+abline(h = 6, lty = 2)
 ```
+\
+* The accumulator stops at **interation 11** with total ≈ 6.7393 (>6), matching the console output and plot. \
+* `trace` records the partial sums after each increment, it is monotonically increasing and crosses the dashed 6-line between iterations 10 and 11. \
+* Design notes: `step_fun()` must return a single finite numeric increment, accumulation stops immediately when `stop_rule(total)` becomes `TRUE`, and the function returns a list containing `total`, `iter`, and `trace`. \
+* Intuition: since each increment follows U(0,1) with an expected value of 0.5, the total is expected to exceed 6 after roughly 6/0.5 ≈ 12 iterations. The observed result of 11 iterations is therefore reasonable and within expectation. \
+
 
 ## 2.3 Random Walk with Reflecting Boundaries
 ```{r 2.3}
+simulate_bacteria <- function(N = 20, T = 150, a = 0, b = 2,
+                              move = FALSE, box_half_size = 10, food_r = 3) {
+  # input checks
+  if (!is.numeric(N) || N <= 0 || N %% 1 != 0) stop("`N` must be a positive integer.")
+  if (!is.numeric(T) || T <= 0 || T %% 1 != 0) stop("`T` must be a positive integer.")
+  if (!is.numeric(a) || !is.numeric(b) || a < 0 || b <= a) stop("Require 0 <= a < b.")
+  if (!is.numeric(box_half_size) || box_half_size <= 0) stop("`box_half_size` > 0.")
+  if (!is.numeric(food_r) || food_r <= 0) stop("`food_r` > 0.")
+  box <- box_half_size
 
+  # helpers
+  in_food <- function(x, y) (x^2 + y^2) <= food_r^2
+
+  # reflect a scalar position into [-bound, bound] (handles multiple crossings)
+  reflect_1d <- function(pos, bound) {
+    p <- pos
+    while (p < -bound || p > bound) {
+      if (p >  bound) p <-  2*bound - p
+      if (p < -bound) p <- -2*bound - p
+    }
+    p
+  }
+
+  # initial positions ~ U(-9, 9)
+  x <- stats::runif(N, -9, 9)
+  y <- stats::runif(N, -9, 9)
+
+  frozen <- rep(FALSE, N)   # TRUE once it freezes (move=FALSE and inside)
+  inside <- in_food(x, y)
+
+  # preallocate trajectory storage
+  out_id <- integer((T + 1L) * N)
+  out_t  <- integer((T + 1L) * N)
+  out_x  <- numeric((T + 1L) * N)
+  out_y  <- numeric((T + 1L) * N)
+  out_in <- logical((T + 1L) * N)
+
+  write_row <- 0L
+  write_step <- function(tt, xx, yy, ins) {
+    idx <- (write_row + 1L):(write_row + N)
+    out_id[idx] <<- seq_len(N)
+    out_t[idx]  <<- tt
+    out_x[idx]  <<- xx
+    out_y[idx]  <<- yy
+    out_in[idx] <<- ins
+    write_row    <<- write_row + N
+  }
+
+  # record t = 0
+  write_step(0L, x, y, inside)
+
+  # simulate
+  for (t in 1:T) {
+    for (i in 1:N) {
+      if (frozen[i]) next
+
+      # propose a step
+      s     <- stats::runif(1, a, b)
+      theta <- stats::runif(1, 0, 2*pi)
+      x_new <- x[i] + s * cos(theta)
+      y_new <- y[i] + s * sin(theta)
+
+      # reflect off the square boundary
+      x_new <- reflect_1d(x_new, box)
+      y_new <- reflect_1d(y_new, box)
+
+      if (!inside[i]) {
+        # currently outside
+        if (in_food(x_new, y_new)) {
+          inside[i] <- TRUE
+          if (!isTRUE(move)) {
+            # freeze at first entry
+            x[i] <- x_new; y[i] <- y_new
+            frozen[i] <- TRUE
+            next
+          } else {
+            # keep moving (now inside)
+            x[i] <- x_new; y[i] <- y_new
+            next
+          }
+        } else {
+          # still outside
+          x[i] <- x_new; y[i] <- y_new
+          next
+        }
+      } else {
+        # already inside
+        if (!isTRUE(move)) {
+          # should be frozen; guard
+          frozen[i] <- TRUE
+          next
+        } else {
+          # keep moving but must remain inside: resample until inside
+          tries <- 0L
+          repeat {
+            if (in_food(x_new, y_new)) break
+            tries <- tries + 1L
+            if (tries > 500L) break  # safety
+            s     <- stats::runif(1, a, b)
+            theta <- stats::runif(1, 0, 2*pi)
+            x_new <- x[i] + s * cos(theta)
+            y_new <- y[i] + s * sin(theta)
+            x_new <- reflect_1d(x_new, box)
+            y_new <- reflect_1d(y_new, box)
+          }
+          x[i] <- x_new; y[i] <- y_new
+        }
+      }
+    }
+    write_step(t, x, y, inside)
+  }
+
+  traj <- data.frame(
+    id     = out_id,
+    t      = out_t,
+    x      = out_x,
+    y      = out_y,
+    inside = out_in,
+    row.names = NULL
+  )
+  final <- traj[traj$t == T, c("id","x","y","inside")]
+  rownames(final) <- NULL
+
+  list(
+    traj  = traj,
+    final = final,
+    meta  = list(N = N, T = T, a = a, b = b, move = move,
+                 box_half_size = box_half_size, food_r = food_r)
+  )
+}
+
+# --- plots ------------------------------------------------------------
+
+set.seed(7)
+sim_stop <- simulate_bacteria(N = 20, T = 150, a = 0, b = 2, move = FALSE)
+
+# plot trajectories with different colors; overlay the food circle (radius 3)
+ids  <- sort(unique(sim_stop$traj$id))
+cols <- grDevices::hcl.colors(length(ids), palette = "Dark3")
+plot(NA, xlim = c(-10, 10), ylim = c(-10, 10), xlab = "x", ylab = "y",
+     main = "Bacteria trajectories (stop on entry), food radius = 3")
+th <- seq(0, 2*pi, length.out = 500)
+lines(3*cos(th), 3*sin(th), lwd = 2, lty = 2)
+for (j in seq_along(ids)) {
+  d <- sim_stop$traj[sim_stop$traj$id == ids[j], ]
+  lines(d$x, d$y, col = cols[j])
+  points(d$x[1], d$y[1], pch = 16, cex = 0.5, col = cols[j])              # start
+  points(d$x[nrow(d)], d$y[nrow(d)], pch = 1,  cex = 0.8, col = cols[j])  # end
+}
+
+# move = TRUE: keep moving within the circle
+set.seed(7)
+sim_move <- simulate_bacteria(N = 20, T = 150, a = 0, b = 2, move = TRUE)
+plot(NA, xlim = c(-10, 10), ylim = c(-10, 10), xlab = "x", ylab = "y",
+     main = "Bacteria trajectories (keep moving inside food)")
+lines(3*cos(th), 3*sin(th), lwd = 2, lty = 2)
+for (j in seq_along(ids)) {
+  d <- sim_move$traj[sim_move$traj$id == ids[j], ]
+  lines(d$x, d$y, col = cols[j])
+}
 ```
+\
+* **Model/logic**: Each bacterium starts at (x_0, y_0) ~ U(−9,9)^2 and takes "run-and-tumble" steps (x_t+1, y_t+1) = (x_t, y_t) + St(cosδt, sinδt) with St ~ U(0,2), δt ∼ U(0,2π). \
+Reflecting boundaries keep positions inside the square [-10, 10]^2; a helper checks whether a point is inside the food circle of radius 3. \
+* **Return values**: `simulate_bacteria()` returns the full trajectory table (id, time, x, y, inside) and the final locations at t = T. \
+Two hehaviors are controlled by `move`: \
+  -  `move - FALSE` (stop on entry): a bacterium freezes the first time it enters the food circle. \
+  - `move = TRUE` (keep moving inside): after first entry, all subsequent steps are constrained to remain in the circle. \
+* **Stop on entry**: Paths looks like standard random walks with occasional wall bounces. Many trajectories terminate on the dashed circle, producing end markers clustered just inside radius 3. Outside the food region, movement continues until first hit; once hit, the path ends (flat thereafter). \
+* **Keep moving inside**: Outside the circle, trajectories look the same as above; after entry, motion continues but is confined within the circle, producing a dense "spaghetti cloud" inside the dashed boundary. This visually confirms the rule is enforced. \
+* **Sanity checks visible in the plot** \
+  - All coordinates remain within [-10, 10] -> reflections work.\
+  - The food boundary is a circle of radius 3 centered at the origin. \
+  - With `move = FALSE`, endpoints concentrate near the circle; with move =  TRUE, time spent inside is high after entry, so the interior fills in. \
+  
+
 
 # 3 Rashomon-Lite Package
 ## 3.1 Core Functions
