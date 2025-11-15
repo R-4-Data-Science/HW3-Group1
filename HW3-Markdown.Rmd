@@ -586,10 +586,156 @@ Two hehaviors are controlled by `move`: \
 # 3 Rashomon-Lite Package
 ## 3.1 Core Functions
 ```{r 3.1}
+#create function to create a dataframe with m number of models with size k
+fit_models_dim <- function(X, y, k, m) {
+  varsall<-colnames(X)
+  combs<-combn(varsall, k, simplify = FALSE)
+  combs<-combs[seq_len(min(length(combs), m))]
+  fit_models_dim
+  out <- lapply(combs, function(vs) {
+    df <- data.frame(y = y, X[, vs, drop = FALSE])
+    fit <- glm(y ~ ., data = df, family = binomial)
+    
+    list(
+      vars  = vs,
+      aic   = AIC(fit),
+      coef  = coef(fit),
+      pvals = summary(fit)$coefficients[, 4]
+    )
+  })
+  
+  # Convert to data frame with list columns
+  data.frame(
+    vars  = I(lapply(out, `[[`, "vars")),
+    aic   = sapply(out, `[[`, "aic"),
+    coef  = I(lapply(out, `[[`, "coef")),
+    pvals = I(lapply(out, `[[`, "pvals")),
+    stringsAsFactors = FALSE
+  )
+}
+#find the best models by outputting the ones with the lowest AIC
+select_best <- function(models_df, alpha = 0.5) {
+  nsel <- max(1, floor(alpha * nrow(models_df)))
+  models_df[order(models_df$aic)][seq_len(nsel), ]
+}
+# create models that add on to the selected models
+grow_from <- function(best_df, all_vars, k_next, m) {
+  grown <- list()
+  grown_keys <- character(0)
+  
+  for (i in seq_len(nrow(best_df))) {
+    base_vars <- best_df$vars[[i]]
+    
+    addable <- setdiff(all_vars, base_vars)
+    for (v in addable) {
+      new_vars <- sort(c(base_vars, v))
+      key <- paste(new_vars, collapse = ",")
+      
+      if (!(key %in% grown_keys)) {
+        grown[[length(grown) + 1]] <- new_vars
+        grown_keys <- c(grown_keys, key)
+      }
+      if (length(grown) >= m) break
+    }
+    if (length(grown) >= m) break
+  }
 
+  out <- lapply(grown, function(vs) {
+    df <- data.frame(y = y, X[, vs, drop = FALSE])
+    fit <- glm(y ~ ., data = df, family = binomial)
+    
+    list(
+      vars  = vs,
+      aic   = AIC(fit),
+      coef  = coef(fit),
+      pvals = summary(fit)$coefficients[, 4]
+    )
+  })
+  
+  data.frame(
+    vars  = I(lapply(out, `[[`, "vars")),
+    aic   = sapply(out, `[[`, "aic"),
+    coef  = I(lapply(out, `[[`, "coef")),
+    pvals = I(lapply(out, `[[`, "pvals")),
+    stringsAsFactors = FALSE
+  )
+}
+
+run_rashomon <- function(X, y, pmax = 5, m = 90, alpha = 0.5) {
+  all_vars <- colnames(X)
+  M <- list()
+  
+  M[[1]] <- fit_models_dim(X, y, 1, m)
+  best_df <- select_best(M[[1]], alpha)
+  
+  # recursively grow
+  for (k in 2:pmax) {
+    grown <- grow_from(best_df, all_vars, k_next = k, m = m)
+    M[[k]] <- grown
+    best_df <- select_best(grown, alpha)
+  }
+  
+  # find predictor counts by dimension
+  count_list <- lapply(M, function(df) {
+    tab <- table(unlist(df$vars))
+    data.frame(var = names(tab), count = as.integer(tab))
+  })
+  
+  # give AIC distributions by dimension
+  aic_list <- lapply(seq_along(M), function(k) {
+    data.frame(k = k, aic = M[[k]]$aic)
+  })
+  aic_df <- do.call(rbind, aic_list)
+  
+  list(
+    M = M,
+    count_by_dim = count_list,
+    aic_by_dim = aic_df
+  )
+}
 ```
 
 ## 3.2 Minimal Package
 ``` {r 3.2}
+# create the rashomonlite package
+dir.create("rashomonlite")
+dir.create("rashomonlite/R")
+file.create("rashomonlite/DESCRIPTION")
+file.create("rashomonlite/NAMESPACE")
+system("R CMD build rashomonlite")
+install.packages("rashomonlite_0.1.0.tar.gz", repos = NULL, type = "source")
+
+
+###Test the rashomonlite package
+library(rashomonlite)
+set.seed(1)
+n <- 100
+#create arbitrary dataframes X and y to test rashomonlite
+X <- data.frame(
+  x1 = rnorm(n),
+  x2 = rnorm(n),
+  x3 = rnorm(n)
+)
+y <- rbinom(n, 1, plogis(0.6*X$x1 - 0.3*X$x2 + 0.1*X$x3))
+out <- run_rashomon(X, y, pmax = 3, m = 20, alpha = 0.5)
+
+# create table of best models by dimension
+for (k in 1:3) {
+  cat("\n=== Dimension", k, "===\n")
+  print(out$M[[k]][order(out$M[[k]]$aic), ][1:5, c("variables","aic")])
+}
+
+# create a bar plot with the count-included per predictor 
+par(mfrow = c(1,3))
+for (k in 1:3) {
+  df <- out$count_by_dim[[k]]
+  barplot(df$count, names.arg = df$var,
+          main = paste("Dim", k, "Counts"))
+}
+
+# create a boxplot of AIC by dimension
+boxplot(aic ~ k, data = out$aic_by_dim,
+        xlab = "Dimension", ylab = "AIC",
+        main = "AIC by Dimension")
 
 ```
