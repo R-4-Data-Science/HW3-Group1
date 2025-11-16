@@ -592,11 +592,10 @@ fit_models_dim <- function(X, y, k, m) {
   varsall<-colnames(X)
   combs<-combn(varsall, k, simplify = FALSE)
   combs<-combs[seq_len(min(length(combs), m))]
-  fit_models_dim
+#assign output with a dataframe and fitted glm
   out <- lapply(combs, function(vs) {
     df <- data.frame(y = y, X[, vs, drop = FALSE])
     fit <- glm(y ~ ., data = df, family = binomial)
-    
     list(
       vars  = vs,
       aic   = AIC(fit),
@@ -604,7 +603,8 @@ fit_models_dim <- function(X, y, k, m) {
       pvals = summary(fit)$coefficients[, 4]
     )
   })
-  
+# the fit_models_dim function, creates a data frame of a number m possible models with size k for each model. This is the basis for the next 3 functions, because it creates the #data frame of models to analyze, and determine which ones best fit the data.
+
   # Convert to data frame with list columns
   data.frame(
     vars  = I(lapply(out, `[[`, "vars")),
@@ -614,11 +614,13 @@ fit_models_dim <- function(X, y, k, m) {
     stringsAsFactors = FALSE
   )
 }
-#find the best models by outputting the ones with the lowest AIC
+
 select_best <- function(models_df, alpha = 0.5) {
   nsel <- max(1, floor(alpha * nrow(models_df)))
   models_df[order(models_df$aic)][seq_len(nsel), ]
 }
+# the select_best function outputs the AIC values of each model, which helps compare all of them and helps decide which one will best represent the real data.
+
 # create models that add on to the selected models
 grow_from <- function(best_df, all_vars, k_next, m) {
   grown <- list()
@@ -661,6 +663,7 @@ grow_from <- function(best_df, all_vars, k_next, m) {
     stringsAsFactors = FALSE
   )
 }
+# the grow_from function, grows each model by adding variables to each unless they exceed size m. This helps to further exapand the models, preventiing duplicates, and making #sure all of the data is covered.
 
 run_rashomon <- function(X, y, pmax = 5, m = 90, alpha = 0.5) {
   all_vars <- colnames(X)
@@ -669,7 +672,7 @@ run_rashomon <- function(X, y, pmax = 5, m = 90, alpha = 0.5) {
   M[[1]] <- fit_models_dim(X, y, 1, m)
   best_df <- select_best(M[[1]], alpha)
   
-  # recursively grow
+  # recursively grow models
   for (k in 2:pmax) {
     grown <- grow_from(best_df, all_vars, k_next = k, m = m)
     M[[k]] <- grown
@@ -694,6 +697,7 @@ run_rashomon <- function(X, y, pmax = 5, m = 90, alpha = 0.5) {
     aic_by_dim = aic_df
   )
 }
+# run_rashomon outputs tables per model with AIC, cofficient, and p values for every variable for each model that it is run on. This is useful to see which model will be best fit #for the data. By seeing the statistics for each model, you can decide which one will be most accurate in its analysis of your data.
 ```
 
 ## 3.2 Minimal Package
@@ -722,7 +726,7 @@ out <- run_rashomon(X, y, pmax = 3, m = 20, alpha = 0.5)
 # create table of best models by dimension
 for (k in 1:3) {
   cat("\n=== Dimension", k, "===\n")
-  print(out$M[[k]][order(out$M[[k]]$aic), ][1:5, c("variables","aic")])
+  print(out$M[[k]][order(out$M[[k]]$aic), ][1:5, c("vars","aic")])
 }
 
 # create a bar plot with the count-included per predictor 
