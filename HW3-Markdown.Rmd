@@ -8,6 +8,8 @@ output: html_document
 <GPT links> \
 Sumin Kang:https://chatgpt.com/share/69136d89-a134-8010-80c4-8255e2c9899a  \
 Ryan Martin: https://chatgpt.com/share/69188779-9034-8005-9fc2-48b491d3577b \
+Tra Reynolds: https://chatgpt.com/share/691a68f7-aab8-800b-b5f6-eb27933fcd27 \
+
 
 
 
