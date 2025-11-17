@@ -1,0 +1,739 @@
+---
+title: "HW3-Markdown"
+author: "Tra Reynolds, Sumin Kang, Ryan Martin"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+<GPT links> \
+Sumin Kang:https://chatgpt.com/share/69136d89-a134-8010-80c4-8255e2c9899a  \
+Ryan Martin: https://chatgpt.com/share/69188779-9034-8005-9fc2-48b491d3577b \
+
+
+
+# 1 Refactored HW2 into Functions
+## 1.1 label_by_median()
+```{r 1.1}
+#' @param x A numeric vector (can contain NA values).
+#'
+#' @return A data.frame with:
+#'   - value: the original values
+#'   - label: "below" or "at or above" (NA if value is NA)
+#'
+#' @examples
+#' label_by_median(c(1, 5, 2, NA))
+label_by_median <- function(x) {
+  # Input checks
+  if (!is.numeric(x)) {
+    stop("`x` must be a numeric vector.")
+  }
+
+  # Compute median ignoring NAs
+  med <- stats::median(x, na.rm = TRUE)
+
+  # Create labels; NAs stay NA
+  label <- ifelse(is.na(x),
+                  NA_character_,
+                  ifelse(x >= med, "at or above", "below"))
+
+  # Return table
+  data.frame(
+    value = x,
+    label = label,
+    stringsAsFactors = FALSE
+  )
+}
+```
+
+```{r 1.1Test, error=TRUE}
+
+# Example runs of 1.1
+#' The following code sections will run without errors and demonstrates
+#' that 1.1 works for numeric vectors.
+x_demo <- c(1, 5, 2, 8, NA, 4)
+x_demo
+
+xdemo_label <- label_by_median(x_demo)
+xdemo_label
+
+
+#' The following code sections will not fully run and demonstrates
+#' that 1.1 does not work for non-numeric vectors.
+
+ydemo <- c("a", "b", "c", "d", NA, 4)
+ydemo
+
+ydemo_label <- label_by_median(ydemo)
+
+
+```
+
+
+## 1.2 even_until()
+```{r 1.2}
+#' Collect even numbers up to n, stopping at first multiple of k
+#'
+#' @param n Positive integer. Upper limit of the loop.
+#' @param k Positive integer. Stop as soon as the current i is a multiple of k.
+#'
+#' @return An integer vector of even numbers encountered before
+#'   hitting the first multiple of k (the multiple itself is not included).
+#'
+#' @examples
+#' even_until(20, 6)
+even_until <- function(n, k) {
+  # Input checks
+  if (!is.numeric(n) || length(n) != 1 || !is.finite(n) || n <= 0 || n %% 1 != 0) {
+    stop("`n` must be a single positive integer.")
+  }
+  if (!is.numeric(k) || length(k) != 1 || !is.finite(k) || k <= 0 || k %% 1 != 0) {
+    stop("`k` must be a single positive integer.")
+  }
+
+  n <- as.integer(n)
+  k <- as.integer(k)
+
+  evens <- integer(0L)
+
+  for (i in seq_len(n)) {
+    # Skip odds
+    if (i %% 2L == 1L) {
+      next
+    }
+
+    # Stop at first multiple of k (do NOT include it)
+    if (i %% k == 0L) {
+      break
+    }
+
+    evens <- c(evens, i)
+  }
+
+  evens
+}
+```
+
+```{r 1.2Test}
+# Example runs of 1.2
+
+even_until(20, 5)   # stops at 10
+even_until(40, 17)  # stops at 34
+
+# Edge-ish cases:
+even_until(30, 17)  # no multiple of k within 1:n
+even_until(10, 2)   # stops immediately at first multiple of 2
+```
+
+## 1.3 sum_until()
+```{r 1.3}
+#' Draw random numbers and sum until threshold is exceeded
+#'
+#' @param thresh Positive numeric scalar. Stop when running total exceeds this.
+#' @param rng A function to generate random numbers. Must accept
+#'   at least a first argument n (number of draws). Default is runif.
+#' @param ... Additional arguments passed to `rng`.
+#'
+#' @return A list with:
+#'   - total: final sum (first value > thresh)
+#'   - draws: numeric vector of all draws used
+#'
+#' @examples
+#' set.seed(1)
+#' sum_until()                    # default: runif(., 0, 1), thresh = 1
+#' set.seed(1)
+#' sum_until(thresh = 5, rng = rexp, rate = 2)
+sum_until <- function(thresh = 1, rng = stats::runif, ...) {
+  # Input checks
+  if (!is.numeric(thresh) || length(thresh) != 1 || !is.finite(thresh) || thresh <= 0) {
+    stop("`thresh` must be a single positive, finite numeric value.")
+  }
+  if (!is.function(rng)) {
+    stop("`rng` must be a function that accepts at least a first argument `n`.")
+  }
+
+  total <- 0
+  draws <- numeric(0)
+
+  while (total <= thresh) {
+    x <- rng(1, ...)  # draw one number
+
+    if (!is.numeric(x) || length(x) != 1 || is.na(x) || !is.finite(x)) {
+      stop("`rng` must return a single finite numeric value for n = 1.")
+    }
+
+    draws <- c(draws, x)
+    total <- total + x
+  }
+
+  list(
+    total = total,
+    draws = draws
+  )
+}
+```
+
+
+```{r 1.3Test}
+# Example runs of 1.3
+
+set.seed(123)
+
+# Default (runif on (0,1), thresh = 1)
+res_sum_default <- sum_until()
+res_sum_default
+
+# Custom RNG: Exponential( rate = 2 ), threshold 5
+set.seed(123)
+res_sum_exp <- sum_until(thresh = 5, rng = rexp, rate = 2)
+res_sum_exp
+```
+
+## 1.4 estimate_pi()
+```{r 1.4}
+#' Estimate pi via Monte Carlo darts in the unit square
+#'
+#' @param n Positive integer. Number of darts to throw.
+#'
+#' @return A list with:
+#'   - inside: number of darts landing inside the unit quarter circle
+#'   - n: total number of darts
+#'   - pi_hat: Monte Carlo estimate of pi (4 * inside / n)
+#'
+#' @examples
+#' set.seed(1)
+#' estimate_pi(10^4)
+estimate_pi <- function(n) {
+  # Input checks
+  if (!is.numeric(n) || length(n) != 1 || !is.finite(n) || n <= 0 || n %% 1 != 0) {
+    stop("`n` must be a single positive integer.")
+  }
+
+  n <- as.integer(n)
+  inside <- 0L
+
+  for (i in seq_len(n)) {
+    x <- stats::runif(1)
+    y <- stats::runif(1)
+    if (x^2 + y^2 <= 1) {
+      inside <- inside + 1L
+    }
+  }
+
+  pi_hat <- 4 * inside / n
+
+  list(
+    inside = inside,
+    n      = n,
+    pi_hat = pi_hat
+  )
+}
+```
+
+```{r 1.4Test}
+# Example runs of 1.4
+
+set.seed(123)
+
+# More darts increase accuracy
+res_pi_1e4 <- estimate_pi(10000)
+res_pi_1e4
+
+res_pi_1e5 <- estimate_pi(100000)
+res_pi_1e5
+```
+
+## 1.5 rw_sim()
+```{r 1.5}
+#' Simulate a simple symmetric random walk with early stopping
+#'
+#' @param n_steps Positive integer. Maximum number of steps to simulate.
+#' @param boundary Positive numeric. Stop when |S_t| > boundary.
+#'
+#' @return A list with:
+#'   - S: numeric vector of positions S_0, S_1, ..., S_T (T <= n_steps)
+#'   - stop_time: the time t at which |S_t| > boundary, or NA if never exceeded
+#'
+#' @examples
+#' set.seed(1)
+#' rw_sim(n_steps = 100, boundary = 10)
+rw_sim <- function(n_steps = 1000L, boundary = 10) {
+  # Input checks
+  if (!is.numeric(n_steps) || length(n_steps) != 1 || !is.finite(n_steps) ||
+      n_steps <= 0 || n_steps %% 1 != 0) {
+    stop("`n_steps` must be a single positive integer.")
+  }
+  if (!is.numeric(boundary) || length(boundary) != 1 || !is.finite(boundary) ||
+      boundary <= 0) {
+    stop("`boundary` must be a single positive, finite numeric value.")
+  }
+
+  n_steps <- as.integer(n_steps)
+
+  # S_0 = 0, allocate max length n_steps + 1
+  S <- numeric(n_steps + 1L)
+  S[1] <- 0
+  stop_time <- NA_integer_
+
+  for (t in 2:(n_steps + 1L)) {
+    step <- sample(c(-1L, 1L), size = 1L)
+    S[t] <- S[t - 1L] + step
+
+    if (abs(S[t]) > boundary) {
+      stop_time <- t - 1L  # time index in terms of steps (S_t)
+      S <- S[1:t]          # truncate to actual path length
+      break
+    }
+  }
+
+  list(
+    S = S,
+    stop_time = stop_time
+  )
+}
+```
+
+```{r 1.5Test}
+# Example runs of 1.5
+
+set.seed(123)
+
+rw_res <- rw_sim(n_steps = 1000, boundary = 10)
+rw_res$stop_time      # when (if) it crossed the boundary
+head(rw_res$S)        # first few positions
+length(rw_res$S)      # length of the path
+```
+
+
+# 2 Alternative Functions
+## 2.1 Thresholded Labeling with Custom Statistic
+```{r 2.1}
+label_by_stat <- function(x, stat = function(v) stats::median(v, na.rm = TRUE)) {
+  # basic checks
+  if (!is.numeric(x)) stop("`x` must be a numeric vector.")
+  if (!is.function(stat)) stop("`stat` must be a function.")
+
+  # compute threshold
+  thr <- stat(x)
+  if (!is.numeric(thr) || length(thr) != 1L || !is.finite(thr)) {
+    stop("`stat(x)` must return a single finite numeric value.")
+  }
+
+  # label values; keep NA as NA
+  lab <- ifelse(is.na(x), NA_character_,
+                ifelse(x >= thr, "at or above", "below"))
+
+  data.frame(
+    value = x,
+    label = lab,
+    threshold = rep(thr, length(x)),
+    row.names = NULL,
+    stringsAsFactors = FALSE
+  )
+}
+
+# ---Results------------------------------------------------------------
+
+set.seed(42)
+z <- c(rnorm(12), NA)
+
+# default (median)
+head(label_by_stat(z))
+
+# mean threshold
+head(label_by_stat(z, stat = function(v) mean(v, na.rm = TRUE)))
+
+# 75th percentile threshold
+head(label_by_stat(z, stat = function(v) stats::quantile(v, 0.75, na.rm = TRUE)))
+```
+\
+* **Median (≈ 0.5186)**: values ≥ 0.5186 are labeled **"at or above"**. In the first `head()`, row 1 and 4 meet this; others are "below". \
+* **Mean (≈ 0.7554)**: stricter cutoff than the median; in `head()`, non reach it, so all shown rows are "below". \
+* **75th percentile (≈ 1.4061)**: the highest cutoff; in `head()`, none reach it, so all shown rows are "below". \
+* **NA handling**: any `NA` in `z` stays `NA` in the `label` column (not shown in `head()`, but preserved by the function.) \
+
+By parameterizing the threshold via `stat`, the same labeling logic flexibly adapts to different summaries of the data as the chosen statistic increases from the median -> mean -> 75th percentile, the cutoff becomes more stringent and fewer observations are labeled "at or above", while `NA` values are carried through unchanged. \
+
+## 2.2 Generalized Accumulator with Stop Rule
+```{r 2.2}
+accumulate_until <- function(step_fun, stop_rule, max_iters = 1e6) {
+  if (!is.function(step_fun)) stop("`step_fun` must be a zero-arg function.")
+  if (!is.function(stop_rule)) stop("`stop_rule` must be a one-arg function.")
+  if (!is.numeric(max_iters) || length(max_iters) != 1 || max_iters <= 0) {
+    stop("`max_iters` must be a positive scalar.")
+  }
+
+  total <- 0
+  trace <- numeric(0)
+  iters <- 0L
+
+  repeat {
+    inc <- step_fun()
+    if (!is.numeric(inc) || length(inc) != 1L || !is.finite(inc)) {
+      stop("`step_fun()` must return a single finite numeric value.")
+    }
+
+    total <- total + inc
+    iters <- iters + 1L
+    trace <- c(trace, total)
+
+    if (isTRUE(stop_rule(total))) break
+    if (iters >= max_iters) stop("Reached `max_iters` without satisfying `stop_rule`.")
+  }
+
+  list(total = total, iters = iters, trace = trace)
+}
+
+# --- sum Uniform(0,1) until total > -----------------------------------
+set.seed(123)
+acc_demo <- accumulate_until(
+  step_fun  = function() stats::runif(1),  # U(0,1)
+  stop_rule = function(total) total > 6    # stop when total exceeds 6
+)
+acc_demo$total
+acc_demo$iters
+head(acc_demo$trace)
+
+# optional: quick plot of partial sums
+plot(acc_demo$trace, type = "l", xlab = "Iteration", ylab = "Partial sum",
+     main = "accumulate_until: partial sums (stop when > 6)")
+abline(h = 6, lty = 2)
+```
+\
+* The accumulator stops at **interation 11** with total ≈ 6.7393 (>6), matching the console output and plot. \
+* `trace` records the partial sums after each increment, it is monotonically increasing and crosses the dashed 6-line between iterations 10 and 11. \
+* Design notes: `step_fun()` must return a single finite numeric increment, accumulation stops immediately when `stop_rule(total)` becomes `TRUE`, and the function returns a list containing `total`, `iter`, and `trace`. \
+* Intuition: since each increment follows U(0,1) with an expected value of 0.5, the total is expected to exceed 6 after roughly 6/0.5 ≈ 12 iterations. The observed result of 11 iterations is therefore reasonable and within expectation. \
+
+
+## 2.3 Random Walk with Reflecting Boundaries
+```{r 2.3}
+simulate_bacteria <- function(N = 20, T = 150, a = 0, b = 2,
+                              move = FALSE, box_half_size = 10, food_r = 3) {
+  # input checks
+  if (!is.numeric(N) || N <= 0 || N %% 1 != 0) stop("`N` must be a positive integer.")
+  if (!is.numeric(T) || T <= 0 || T %% 1 != 0) stop("`T` must be a positive integer.")
+  if (!is.numeric(a) || !is.numeric(b) || a < 0 || b <= a) stop("Require 0 <= a < b.")
+  if (!is.numeric(box_half_size) || box_half_size <= 0) stop("`box_half_size` > 0.")
+  if (!is.numeric(food_r) || food_r <= 0) stop("`food_r` > 0.")
+  box <- box_half_size
+
+  # helpers
+  in_food <- function(x, y) (x^2 + y^2) <= food_r^2
+
+  # reflect a scalar position into [-bound, bound] (handles multiple crossings)
+  reflect_1d <- function(pos, bound) {
+    p <- pos
+    while (p < -bound || p > bound) {
+      if (p >  bound) p <-  2*bound - p
+      if (p < -bound) p <- -2*bound - p
+    }
+    p
+  }
+
+  # initial positions ~ U(-9, 9)
+  x <- stats::runif(N, -9, 9)
+  y <- stats::runif(N, -9, 9)
+
+  frozen <- rep(FALSE, N)   # TRUE once it freezes (move=FALSE and inside)
+  inside <- in_food(x, y)
+
+  # preallocate trajectory storage
+  out_id <- integer((T + 1L) * N)
+  out_t  <- integer((T + 1L) * N)
+  out_x  <- numeric((T + 1L) * N)
+  out_y  <- numeric((T + 1L) * N)
+  out_in <- logical((T + 1L) * N)
+
+  write_row <- 0L
+  write_step <- function(tt, xx, yy, ins) {
+    idx <- (write_row + 1L):(write_row + N)
+    out_id[idx] <<- seq_len(N)
+    out_t[idx]  <<- tt
+    out_x[idx]  <<- xx
+    out_y[idx]  <<- yy
+    out_in[idx] <<- ins
+    write_row    <<- write_row + N
+  }
+
+  # record t = 0
+  write_step(0L, x, y, inside)
+
+  # simulate
+  for (t in 1:T) {
+    for (i in 1:N) {
+      if (frozen[i]) next
+
+      # propose a step
+      s     <- stats::runif(1, a, b)
+      theta <- stats::runif(1, 0, 2*pi)
+      x_new <- x[i] + s * cos(theta)
+      y_new <- y[i] + s * sin(theta)
+
+      # reflect off the square boundary
+      x_new <- reflect_1d(x_new, box)
+      y_new <- reflect_1d(y_new, box)
+
+      if (!inside[i]) {
+        # currently outside
+        if (in_food(x_new, y_new)) {
+          inside[i] <- TRUE
+          if (!isTRUE(move)) {
+            # freeze at first entry
+            x[i] <- x_new; y[i] <- y_new
+            frozen[i] <- TRUE
+            next
+          } else {
+            # keep moving (now inside)
+            x[i] <- x_new; y[i] <- y_new
+            next
+          }
+        } else {
+          # still outside
+          x[i] <- x_new; y[i] <- y_new
+          next
+        }
+      } else {
+        # already inside
+        if (!isTRUE(move)) {
+          # should be frozen; guard
+          frozen[i] <- TRUE
+          next
+        } else {
+          # keep moving but must remain inside: resample until inside
+          tries <- 0L
+          repeat {
+            if (in_food(x_new, y_new)) break
+            tries <- tries + 1L
+            if (tries > 500L) break  # safety
+            s     <- stats::runif(1, a, b)
+            theta <- stats::runif(1, 0, 2*pi)
+            x_new <- x[i] + s * cos(theta)
+            y_new <- y[i] + s * sin(theta)
+            x_new <- reflect_1d(x_new, box)
+            y_new <- reflect_1d(y_new, box)
+          }
+          x[i] <- x_new; y[i] <- y_new
+        }
+      }
+    }
+    write_step(t, x, y, inside)
+  }
+
+  traj <- data.frame(
+    id     = out_id,
+    t      = out_t,
+    x      = out_x,
+    y      = out_y,
+    inside = out_in,
+    row.names = NULL
+  )
+  final <- traj[traj$t == T, c("id","x","y","inside")]
+  rownames(final) <- NULL
+
+  list(
+    traj  = traj,
+    final = final,
+    meta  = list(N = N, T = T, a = a, b = b, move = move,
+                 box_half_size = box_half_size, food_r = food_r)
+  )
+}
+
+# --- plots ------------------------------------------------------------
+
+set.seed(7)
+sim_stop <- simulate_bacteria(N = 20, T = 150, a = 0, b = 2, move = FALSE)
+
+# plot trajectories with different colors; overlay the food circle (radius 3)
+ids  <- sort(unique(sim_stop$traj$id))
+cols <- grDevices::hcl.colors(length(ids), palette = "Dark3")
+plot(NA, xlim = c(-10, 10), ylim = c(-10, 10), xlab = "x", ylab = "y",
+     main = "Bacteria trajectories (stop on entry), food radius = 3")
+th <- seq(0, 2*pi, length.out = 500)
+lines(3*cos(th), 3*sin(th), lwd = 2, lty = 2)
+for (j in seq_along(ids)) {
+  d <- sim_stop$traj[sim_stop$traj$id == ids[j], ]
+  lines(d$x, d$y, col = cols[j])
+  points(d$x[1], d$y[1], pch = 16, cex = 0.5, col = cols[j])              # start
+  points(d$x[nrow(d)], d$y[nrow(d)], pch = 1,  cex = 0.8, col = cols[j])  # end
+}
+
+# move = TRUE: keep moving within the circle
+set.seed(7)
+sim_move <- simulate_bacteria(N = 20, T = 150, a = 0, b = 2, move = TRUE)
+plot(NA, xlim = c(-10, 10), ylim = c(-10, 10), xlab = "x", ylab = "y",
+     main = "Bacteria trajectories (keep moving inside food)")
+lines(3*cos(th), 3*sin(th), lwd = 2, lty = 2)
+for (j in seq_along(ids)) {
+  d <- sim_move$traj[sim_move$traj$id == ids[j], ]
+  lines(d$x, d$y, col = cols[j])
+}
+```
+\
+* **Model/logic**: Each bacterium starts at (x_0, y_0) ~ U(−9,9)^2 and takes "run-and-tumble" steps (x_t+1, y_t+1) = (x_t, y_t) + St(cosδt, sinδt) with St ~ U(0,2), δt ∼ U(0,2π). \
+Reflecting boundaries keep positions inside the square [-10, 10]^2; a helper checks whether a point is inside the food circle of radius 3. \
+* **Return values**: `simulate_bacteria()` returns the full trajectory table (id, time, x, y, inside) and the final locations at t = T. \
+Two hehaviors are controlled by `move`: \
+  -  `move - FALSE` (stop on entry): a bacterium freezes the first time it enters the food circle. \
+  - `move = TRUE` (keep moving inside): after first entry, all subsequent steps are constrained to remain in the circle. \
+* **Stop on entry**: Paths looks like standard random walks with occasional wall bounces. Many trajectories terminate on the dashed circle, producing end markers clustered just inside radius 3. Outside the food region, movement continues until first hit; once hit, the path ends (flat thereafter). \
+* **Keep moving inside**: Outside the circle, trajectories look the same as above; after entry, motion continues but is confined within the circle, producing a dense "spaghetti cloud" inside the dashed boundary. This visually confirms the rule is enforced. \
+* **Sanity checks visible in the plot** \
+  - All coordinates remain within [-10, 10] -> reflections work.\
+  - The food boundary is a circle of radius 3 centered at the origin. \
+  - With `move = FALSE`, endpoints concentrate near the circle; with move =  TRUE, time spent inside is high after entry, so the interior fills in. \
+  
+
+
+# 3 Rashomon-Lite Package
+## 3.1 Core Functions
+```{r 3.1}
+#create function to create a dataframe with m number of models with size k
+fit_models_dim <- function(X, y, k, m) {
+  varsall<-colnames(X)
+  combs<-combn(varsall, k, simplify = FALSE)
+  combs<-combs[seq_len(min(length(combs), m))]
+#assign output with a dataframe and fitted glm
+  out <- lapply(combs, function(vs) {
+    df <- data.frame(y = y, X[, vs, drop = FALSE])
+    fit <- glm(y ~ ., data = df, family = binomial)
+    list(
+      vars  = vs,
+      aic   = AIC(fit),
+      coef  = coef(fit),
+      pvals = summary(fit)$coefficients[, 4]
+    )
+  })
+# the fit_models_dim function, creates a data frame of a number m possible models with size k for each model. This is the basis for the next 3 functions, because it creates the #data frame of models to analyze, and determine which ones best fit the data.
+
+  # Convert to data frame with list columns
+  data.frame(
+    vars  = I(lapply(out, `[[`, "vars")),
+    aic   = sapply(out, `[[`, "aic"),
+    coef  = I(lapply(out, `[[`, "coef")),
+    pvals = I(lapply(out, `[[`, "pvals")),
+    stringsAsFactors = FALSE
+  )
+}
+
+select_best <- function(models_df, alpha = 0.5) {
+  nsel <- max(1, floor(alpha * nrow(models_df)))
+  models_df[order(models_df$aic)][seq_len(nsel), ]
+}
+# the select_best function outputs the AIC values of each model, which helps compare all of them and helps decide which one will best represent the real data.
+
+# create models that add on to the selected models
+grow_from <- function(best_df, all_vars, k_next, m) {
+  grown <- list()
+  grown_keys <- character(0)
+  
+  for (i in seq_len(nrow(best_df))) {
+    base_vars <- best_df$vars[[i]]
+    
+    addable <- setdiff(all_vars, base_vars)
+    for (v in addable) {
+      new_vars <- sort(c(base_vars, v))
+      key <- paste(new_vars, collapse = ",")
+      
+      if (!(key %in% grown_keys)) {
+        grown[[length(grown) + 1]] <- new_vars
+        grown_keys <- c(grown_keys, key)
+      }
+      if (length(grown) >= m) break
+    }
+    if (length(grown) >= m) break
+  }
+
+  out <- lapply(grown, function(vs) {
+    df <- data.frame(y = y, X[, vs, drop = FALSE])
+    fit <- glm(y ~ ., data = df, family = binomial)
+    
+    list(
+      vars  = vs,
+      aic   = AIC(fit),
+      coef  = coef(fit),
+      pvals = summary(fit)$coefficients[, 4]
+    )
+  })
+  
+  data.frame(
+    vars  = I(lapply(out, `[[`, "vars")),
+    aic   = sapply(out, `[[`, "aic"),
+    coef  = I(lapply(out, `[[`, "coef")),
+    pvals = I(lapply(out, `[[`, "pvals")),
+    stringsAsFactors = FALSE
+  )
+}
+# the grow_from function, grows each model by adding variables to each unless they exceed size m. This helps to further exapand the models, preventiing duplicates, and making #sure all of the data is covered.
+
+run_rashomon <- function(X, y, pmax = 5, m = 90, alpha = 0.5) {
+  all_vars <- colnames(X)
+  M <- list()
+  
+  M[[1]] <- fit_models_dim(X, y, 1, m)
+  best_df <- select_best(M[[1]], alpha)
+  
+  # recursively grow models
+  for (k in 2:pmax) {
+    grown <- grow_from(best_df, all_vars, k_next = k, m = m)
+    M[[k]] <- grown
+    best_df <- select_best(grown, alpha)
+  }
+  
+  # find predictor counts by dimension
+  count_list <- lapply(M, function(df) {
+    tab <- table(unlist(df$vars))
+    data.frame(var = names(tab), count = as.integer(tab))
+  })
+  
+  # give AIC distributions by dimension
+  aic_list <- lapply(seq_along(M), function(k) {
+    data.frame(k = k, aic = M[[k]]$aic)
+  })
+  aic_df <- do.call(rbind, aic_list)
+  
+  list(
+    M = M,
+    count_by_dim = count_list,
+    aic_by_dim = aic_df
+  )
+}
+# run_rashomon outputs tables per model with AIC, cofficient, and p values for every variable for each model that it is run on. This is useful to see which model will be best fit #for the data. By seeing the statistics for each model, you can decide which one will be most accurate in its analysis of your data.
+```
+
+## 3.2 Minimal Package
+``` {r 3.2}
+
+###Test the rashomonlite package
+library(rashomonlite)
+set.seed(1)
+n <- 100
+#create arbitrary dataframes X and y to test rashomonlite
+X <- data.frame(
+  x1 = rnorm(n),
+  x2 = rnorm(n),
+  x3 = rnorm(n)
+)
+y <- rbinom(n, 1, plogis(0.6*X$x1 - 0.3*X$x2 + 0.1*X$x3))
+out <- run_rashomon(X, y, pmax = 3, m = 20, alpha = 0.5)
+
+# create table of best models by dimension
+for (k in 1:3) {
+  cat("\n=== Dimension", k, "===\n")
+  print(out$M[[k]][order(out$M[[k]]$aic), ][1:5, c("vars","aic")])
+}
+
+# create a bar plot with the count-included per predictor 
+par(mfrow = c(1,3))
+for (k in 1:3) {
+  df <- out$count_by_dim[[k]]
+  barplot(df$count, names.arg = df$var,
+          main = paste("Dim", k, "Counts"))
+}
+
+# create a boxplot of AIC by dimension
+boxplot(aic ~ k, data = out$aic_by_dim,
+        xlab = "Dimension", ylab = "AIC",
+        main = "AIC by Dimension")
+
+```
+Rashomon repository link: https://github.com/Im-The-Ryno/rashomonlite.git
